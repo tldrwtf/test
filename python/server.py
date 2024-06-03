@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, abort
+from flask import Flask, request, jsonify, send_from_directory, abort, render_template_string
 import sqlite3
 import requests
 from functools import wraps
@@ -172,6 +172,23 @@ def from_hidden_frontend(f):
         logger.warning("Search endpoint accessed without hidden frontend referer.")
         abort(403)  # Forbidden
     return decorated_function
+
+@app.route('/')
+@access_control
+def welcome():
+    welcome_html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Welcome</title>
+    </head>
+    <body>
+        <h1>Welcome to the Server</h1>
+        <p>You are authorized to view this page.</p>
+    </body>
+    </html>
+    """
+    return render_template_string(welcome_html)
 
 @app.route('/log', methods=['GET'])
 @access_control
