@@ -11,6 +11,7 @@ import colorlog
 app = Flask(__name__)
 DATABASE = 'requests_log.db'
 IPINFO_TOKEN = 'Your_IPInfo_token_here'
+SECRET_KEY = 'your_secret_key'
 
 WHITELISTED_IPS = ['127.0.0.1', 'localhost']
 VALID_TOKENS = ['abc']
@@ -53,24 +54,34 @@ def init_db():
             ip TEXT,
             url_params TEXT,
             headers TEXT,
-            ip_info TEXT
+            ip_info TEXT,
+            referer TEXT
         )
     ''')
     conn.commit()
     conn.close()
     logger.info("Database initialized.")
 
-def log_request(ip, url_params, headers, ip_info):
+def log_request(ip, url_params, headers, ip_info, referer):
     try:
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO requests (ip, url_params, headers, ip_info)
-            VALUES (?, ?, ?, ?)
-        ''', (ip, url_params, headers, ip_info))
-        conn.commit()
+
+        # Check if IP is already logged
+        cursor.execute('SELECT COUNT(*) FROM requests WHERE ip = ?', (ip,))
+        ip_count = cursor.fetchone()[0]
+
+        if ip_count == 0:
+            cursor.execute('''
+                INSERT INTO requests (ip, url_params, headers, ip_info, referer)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (ip, url_params, headers, ip_info, referer))
+            conn.commit()
+            logger.info(f"Logged request from IP: {ip}")
+        else:
+            logger.info(f"IP {ip} is already logged.")
+
         conn.close()
-        logger.info(f"Logged request from IP: {ip}")
         return True
     except Exception as e:
         logger.error(f"Logging failed: {e}")
@@ -82,14 +93,17 @@ def log_requests(f):
         ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         url_params = request.args.to_dict()
         headers = dict(request.headers)
+        referer = request.headers.get('Referer', '')
 
         ip_info = {}
         if IPINFO_TOKEN:
             response = requests.get(f'https://ipinfo.io/{ip}?token={IPINFO_TOKEN}')
             if response.status_code == 200:
                 ip_info = response.json()
+            else:
+                logger.warning(f"IPInfo request failed with status {response.status_code}")
 
-        logging_successful = log_request(ip, str(url_params), str(headers), str(ip_info))
+        logging_successful = log_request(ip, str(url_params), str(headers), str(ip_info), referer)
 
         if not logging_successful:
             return jsonify({"status": "logging failed"}), 500
@@ -102,6 +116,11 @@ def access_control(f):
     def decorated_function(*args, **kwargs):
         ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         token = request.headers.get('X-Access-Token')
+        secret_key = request.args.get('secret_key')
+
+        if secret_key == SECRET_KEY:
+            logger.info(f"Access granted with secret key for IP: {ip}")
+            return f(*args, **kwargs)
 
         if ip not in WHITELISTED_IPS and token not in VALID_TOKENS:
             logger.warning(f"Access denied for IP: {ip}")
@@ -109,6 +128,16 @@ def access_control(f):
 
         logger.info(f"Access granted for IP: {ip}")
         return f(*args, **kwargs)
+    return decorated_function
+
+def from_hidden_frontend(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        referer = request.headers.get('Referer')
+        if referer and '/hidden_frontend/' in referer:
+            return f(*args, **kwargs)
+        logger.warning("Search endpoint accessed without hidden frontend referer.")
+        abort(403)  # Forbidden
     return decorated_function
 
 @app.route('/log', methods=['GET'])
@@ -120,14 +149,15 @@ def log():
 @app.route('/search', methods=['GET'])
 @access_control
 @log_requests
+@from_hidden_frontend
 def search():
     query = request.args.get('query', '')
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
     cursor.execute('''
         SELECT * FROM requests
-        WHERE ip LIKE ? OR url_params LIKE ? OR headers LIKE ? OR ip_info LIKE ?
-    ''', (f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%'))
+        WHERE ip LIKE ? OR url_params LIKE ? OR headers LIKE ? OR ip_info LIKE ? OR referer LIKE ?
+    ''', (f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%'))
     rows = cursor.fetchall()
     conn.close()
 
@@ -138,7 +168,8 @@ def search():
             'ip': row[1],
             'url_params': row[2],
             'headers': row[3],
-            'ip_info': row[4]
+            'ip_info': row[4],
+            'referer': row[5]
         })
 
     logger.info(f"Search performed with query: {query}")
