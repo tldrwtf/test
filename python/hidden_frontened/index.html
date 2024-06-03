@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Requests Log</title>
+    <script>
+        async function searchLogs() {
+            const query = document.getElementById('search-query').value;
+            const response = await fetch(`/search?query=${query}`, {
+                headers: {
+                    'X-Access-Token': 'abc'  // Replace with your unique token
+                }
+            });
+            const results = await response.json();
+            const resultsContainer = document.getElementById('results');
+            resultsContainer.innerHTML = '';
+
+            results.forEach(result => {
+                const resultDiv = document.createElement('div');
+                resultDiv.textContent = JSON.stringify(result, null, 2);
+                resultsContainer.appendChild(resultDiv);
+            });
+        }
+    </script>
+</head>
+<body>
+    <h1>Search Requests Log</h1>
+    <input type="text" id="search-query" placeholder="Enter search query">
+    <button onclick="searchLogs()">Search</button>
+    <div id="results"></div>
+</body>
+</html>
