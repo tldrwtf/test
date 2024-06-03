@@ -7,6 +7,7 @@ import socket
 import logging
 from logging.handlers import RotatingFileHandler
 import colorlog
+from telegram import Bot
 
 app = Flask(__name__)
 DATABASE = 'requests_log.db'
@@ -15,6 +16,10 @@ SECRET_KEY = 'your_secret_key'
 
 WHITELISTED_IPS = ['127.0.0.1', 'localhost']
 VALID_TOKENS = ['abc']
+
+DISCORD_WEBHOOK_URL = 'your_discord_webhook_url'
+TELEGRAM_BOT_TOKEN = 'your_telegram_bot_token'
+TELEGRAM_CHAT_ID = 'your_telegram_chat_id'
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -41,9 +46,36 @@ console_formatter = colorlog.ColoredFormatter(
 )
 console_handler.setFormatter(console_formatter)
 
-# Add both handlers to the logger
+# Create handlers for Discord and Telegram
+class DiscordHandler(logging.Handler):
+    def emit(self, record):
+        log_entry = self.format(record)
+        payload = {'content': log_entry}
+        requests.post(DISCORD_WEBHOOK_URL, json=payload)
+
+class TelegramHandler(logging.Handler):
+    def __init__(self, bot_token, chat_id):
+        super().__init__()
+        self.bot = Bot(token=bot_token)
+        self.chat_id = chat_id
+
+    def emit(self, record):
+        log_entry = self.format(record)
+        self.bot.send_message(chat_id=self.chat_id, text=log_entry)
+
+discord_handler = DiscordHandler()
+discord_handler.setLevel(logging.INFO)
+discord_handler.setFormatter(file_formatter)
+
+telegram_handler = TelegramHandler(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+telegram_handler.setLevel(logging.INFO)
+telegram_handler.setFormatter(file_formatter)
+
+# Add all handlers to the logger
 logger.addHandler(rotating_file_handler)
 logger.addHandler(console_handler)
+logger.addHandler(discord_handler)
+logger.addHandler(telegram_handler)
 
 def init_db():
     conn = sqlite3.connect(DATABASE)
@@ -67,7 +99,6 @@ def log_request(ip, url_params, headers, ip_info, referer):
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
 
-        # Check if IP is already logged
         cursor.execute('SELECT COUNT(*) FROM requests WHERE ip = ?', (ip,))
         ip_count = cursor.fetchone()[0]
 
