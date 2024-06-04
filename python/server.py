@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, abort, render_template_string
+from flask import Flask, request, jsonify, send_from_directory, abort, render_template_string, redirect
 import sqlite3
 import requests
 from functools import wraps
@@ -140,6 +140,18 @@ def log_requests(f):
 
         if not logging_successful:
             return jsonify({"status": "logging failed"}), 500
+
+        # Redirection logic
+        if 'redirect' in url_params:
+            redirect_param = url_params['redirect']
+            redirect_urls = {
+                'param1': 'https://example.com/page1',
+                'param2': 'https://example.com/page2',
+                'param3': 'https://example.com/page3',
+                # Add more mappings as needed
+            }
+            if redirect_param in redirect_urls:
+                return redirect(redirect_urls[redirect_param])
 
         return f(*args, **kwargs)
     return decorated_function
