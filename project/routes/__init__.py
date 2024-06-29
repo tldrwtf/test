@@ -1,0 +1,1 @@
+# Content for project/routes/__init__.py
